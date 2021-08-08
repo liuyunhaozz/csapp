@@ -143,7 +143,7 @@ NOTES:
  *   Rating: 1
  */
 int bitXor(int x, int y) {
-  return 2;
+  return ~(x & y) & (~(~x & ~y));
 }
 /* 
  * tmin - return minimum two's complement integer 
@@ -152,8 +152,9 @@ int bitXor(int x, int y) {
  *   Rating: 1
  */
 int tmin(void) {
-
-  return 2;
+  int x = 1;
+  x = x << 31;
+  return x;
 
 }
 //2
@@ -165,7 +166,8 @@ int tmin(void) {
  *   Rating: 1
  */
 int isTmax(int x) {
-  return 2;
+  // return (!((x + 1) ^ (~x))); 错误，忽略了 x = ffff ffff 的特殊情况
+  return !((x + 1) ^ (~x)) & !!(~x);  // !! 保证 x = Tmax 时 后面一项的最后一位为 1
 }
 /* 
  * allOddBits - return 1 if all odd-numbered bits in word set to 1
@@ -176,7 +178,10 @@ int isTmax(int x) {
  *   Rating: 2
  */
 int allOddBits(int x) {
-  return 2;
+  // return !(x ^ 0xaaaaaaaa); // 不能由相等来判断，因为存在 x = ffff ffff 等  情况，偶数位为1没事
+  // return !(~x & 0xaaaaaaaa); 错误，范围不对
+  int num = (0xaa << 24) + (0xaa << 16) + (0xaa << 8) + (0xaa);  // 构造 num = 0xaaaaaaaa
+  return !(~x & num);
 }
 /* 
  * negate - return -x 
@@ -186,7 +191,7 @@ int allOddBits(int x) {
  *   Rating: 2
  */
 int negate(int x) {
-  return 2;
+  return ~x + 1;
 }
 //3
 /* 
@@ -199,7 +204,9 @@ int negate(int x) {
  *   Rating: 3
  */
 int isAsciiDigit(int x) {
-  return 2;
+  // 1.若在其中，必定满足x -0x30>=0且x-0x3a<0
+  // 2.根据1.判断符号位即可
+  return !((x + (~0x30 + 1)) >> 31) & ((x + (~0x3a + 1)) >> 31);
 }
 /* 
  * conditional - same as x ? y : z 
@@ -209,7 +216,7 @@ int isAsciiDigit(int x) {
  *   Rating: 3
  */
 int conditional(int x, int y, int z) {
-  return 2;
+  return ((!x + (~1 + 1)) & y) | ((!!x + (~1 + 1)) & z);
 }
 /* 
  * isLessOrEqual - if x <= y  then return 1, else return 0 
@@ -219,7 +226,8 @@ int conditional(int x, int y, int z) {
  *   Rating: 3
  */
 int isLessOrEqual(int x, int y) {
-  return 2;
+  int same = !(((x ^ y) >> 31) & 0x1);  // 判断 x, y 是否同号; 为了防止溢出，需要在异号时(!same)单独讨论
+  return (!((y + (~x + 1)) >> 31) & same) | ((x >> 31) & (!same));
 }
 //4
 /* 
@@ -231,7 +239,9 @@ int isLessOrEqual(int x, int y) {
  *   Rating: 4 
  */
 int logicalNeg(int x) {
-  return 2;
+  // return ((((~x + 1) ^ x) >> 31) + 1) & (x ^ (1 << 31)); 使用 ^ 判断符号位相同行不通, 因为 x = TMin 时无法排除
+  return ((((~x + 1) | x) >> 31) + 1);   // 因为符号位不可能是 1 1, 所以可以使用 | 代替 ^ 完成符号位是否相同的判断
+
 }
 /* howManyBits - return the minimum number of bits required to represent x in
  *             two's complement
@@ -246,7 +256,24 @@ int logicalNeg(int x) {
  *  Rating: 4
  */
 int howManyBits(int x) {
-  return 0;
+  int b16, b8, b4, b2, b1, b0;
+  int sign = x >> 31;
+  x = (sign & ~x) | (~sign & x);// 如果x为正则不变，否则按位取反(这样好找最高位为1的，原来是最高位为0的，这样也将符号位去掉了)
+
+
+// 不断缩小范围
+  b16 = !!(x >> 16) << 4;// 高十六位是否有1
+  x = x >> b16;// 如果有(至少需要16位)，则将原数右移16位
+  b8 = !!(x >> 8) << 3;// 剩余位高8位是否有1
+  x = x >> b8;// 如果有(至少需要16+8=24位)，则右移8位
+  b4 = !!(x >> 4) << 2;// 同理
+  x = x >> b4;
+  b2 = !!(x >> 2) << 1;
+  x = x >> b2;
+  b1 = !!(x >> 1);
+  x = x >> b1;
+  b0 = x;
+  return b16 + b8 + b4 + b2 + b1 + b0 + 1;//+1表示加上符号位
 }
 //float
 /* 
@@ -261,7 +288,22 @@ int howManyBits(int x) {
  *   Rating: 4
  */
 unsigned floatScale2(unsigned uf) {
-  return 2;
+  //分别取符号位，尾数，指数
+  int sign = uf & (1 << 31);
+  int frac = uf & 0x007fffff;
+  int exp = (uf >> 23) & 0xff;
+  
+  //非规格化数，指数全0，尾数无隐藏位，故可通过左移一位变为2倍，考察临界值(非规格化最大数)，也成立，见下图绿色部分
+  if(exp == 0) return (uf << 1) | sign;
+  
+  //NaN，无穷大
+  if(exp == 255)  return uf;
+  
+  //规格化数，有隐藏位，故通过改变指数变成2倍
+  exp++;
+  if(exp == 255) return 0x7f800000 | sign;
+  
+  return (exp << 23) | frac | sign;;
 }
 /* 
  * floatFloat2Int - Return bit-level equivalent of expression (int) f
@@ -276,7 +318,22 @@ unsigned floatScale2(unsigned uf) {
  *   Rating: 4
  */
 int floatFloat2Int(unsigned uf) {
-  return 2;
+
+  int TMin = 0x1 << 31;  // 溢出需返回的值
+  int sign = uf >> 31;   // 取符号
+  int frac = uf & 0x007fffff;    // 取尾数
+  int e = ((uf >> 23) & 0xff) - 127;  //  取指数  exp-偏置（ 2^7 -1）=127
+  int M = frac | (0x1 << 23);// 补充隐藏位1
+
+  if(e < 0) return 0; // 如果指数小于0，相当于尾数小数点左移，必定为小数，舍入为0(此时包含了非规格化数和一部分规格化数)
+  if(e > 31) return TMin;// 如果指数大于31,相当于尾数小数点右移31，溢出
+  if(e > 23) M = M << (e - 23);//如果指数>23, 小数点移动相当于 frac 左移 e-23, 并在后面补0 
+  else M = M >> (23 - e);   //否则小数点移动相当于 frac 右移 23-e, 损失后 23 - e 位, 在前面补0
+
+  if(!((M >> 31) ^ sign)) return M;// 如果移动完成的尾数M符号位与sign相同，无需转换，直接返回M
+  else if(M >> 31) return TMin;// 如果不同，且M为负数，则无法表示(需更多位)，返回溢出
+  else return ~M + 1;   // 如果不同，且M为正数，返回其相反数
+
 }
 /* 
  * floatPower2 - Return bit-level equivalent of the expression 2.0^x
@@ -292,5 +349,8 @@ int floatFloat2Int(unsigned uf) {
  *   Rating: 4
  */
 unsigned floatPower2(int x) {
-    return 2;
+  int inf = 0x7f800000;
+  if(x < -126) return 0;
+  if(x > 127) return inf;
+  return (x + 127) << 23;    // x + 127 表示在低8位的exp位, 因此要移动到原来的位置上以表示实际值
 }
