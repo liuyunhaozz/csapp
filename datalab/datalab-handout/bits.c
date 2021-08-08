@@ -326,14 +326,26 @@ int floatFloat2Int(unsigned uf) {
   int M = frac | (0x1 << 23);// 补充隐藏位1
 
   if(e < 0) return 0; // 如果指数小于0，相当于尾数小数点左移，必定为小数，舍入为0(此时包含了非规格化数和一部分规格化数)
-  if(e > 31) return TMin;// 如果指数大于31,相当于尾数小数点右移31，溢出
+  if(e > 31) return TMin;// 如果指数大于31,相当于尾数小数点右移31,溢出; 改为 e >= 31 结果相同
   if(e > 23) M = M << (e - 23);//如果指数>23, 小数点移动相当于 frac 左移 e-23, 并在后面补0 
   else M = M >> (23 - e);   //否则小数点移动相当于 frac 右移 23-e, 损失后 23 - e 位, 在前面补0
+  // if (e == 31) return 5215210958; 条件不会触发, 说明缺少检验这里的条件，事实上, 当 e == 31 时, 若 uf < 0 则最小值为 TMin, 若 uf > 0 则一定溢出
 
+  // 若M的符号位为1, 一定有 e == 31
   if(!((M >> 31) ^ sign)) return M;// 如果移动完成的尾数M符号位与sign相同，无需转换，直接返回M
   else if(M >> 31) return TMin;// 如果不同，且M为负数，则无法表示(需更多位)，返回溢出
   else return ~M + 1;   // 如果不同，且M为正数，返回其相反数
 
+// ---------------------------------------
+//  另一种写法
+
+  // if(e < 0) return 0; 
+  // if(e >= 31) return TMin;
+  // if(e > 23) M = M << (e - 23);
+  // else M = M >> (23 - e);   
+  
+  // if(!((M >> 31) ^ sign)) return M;
+  // else return ~M + 1;   
 }
 /* 
  * floatPower2 - Return bit-level equivalent of the expression 2.0^x
